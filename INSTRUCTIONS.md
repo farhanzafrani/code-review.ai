@@ -144,15 +144,37 @@ key** — do that next: set `OPENAI_API_KEY` and open a real PR on the
 connected test repo, confirm the review comment actually lands.
 
 ### Phase 3 — Frontend dashboard
-- [ ] GitHub OAuth login flow in Next.js, calling the backend for the JWT.
-- [ ] Repo list page (connect/disconnect a repo).
-- [ ] PR list page showing review status per PR.
-- [ ] Review detail page rendering the AI output (bugs, explanation,
-      suggested fix) alongside the diff.
-- [ ] WebSocket (or polling) so review status updates live without refresh.
+- [x] GitHub OAuth login flow in Next.js, calling the backend for the JWT
+      (backend callback redirects to `/auth/callback?token=...`, stored in
+      localStorage via `lib/auth-context.tsx`).
+- [x] Repo list page (`/dashboard`): connect (link to the GitHub App
+      install page) / disconnect (`DELETE /repositories/{id}`).
+- [x] PR list page (`/dashboard/repositories/[id]`) showing review status
+      per PR.
+- [x] Review detail page (`/dashboard/pull-requests/[id]`) rendering the AI
+      output (summary, per-bug severity/file/description/suggestion)
+      alongside the live diff (fetched from GitHub via the backend).
+- [x] Polling (every 4s while a review is pending/running) so status
+      updates without a manual refresh — chose polling over WebSockets per
+      the "simplest tool that satisfies the phase" rule.
+- [x] New backend endpoints to support the above: `GET/DELETE
+      /repositories`, `GET /repositories/{id}/pull-requests`, `GET
+      /pull-requests/{id}`, `GET /pull-requests/{id}/diff`, plus CORS.
 
 **Done when:** a user can log in, connect a repo, and watch a PR's AI review
 appear on the dashboard without touching GitHub directly.
+
+Verified: backend — ruff clean, new endpoints exercised end-to-end against
+an in-memory SQLite DB via `TestClient` (list/disconnect repos, list PRs
+with nested latest review, PR detail). Frontend — `tsc --noEmit`, `eslint`,
+and `next build` all clean; walked the full flow in headless Chrome against
+a mocked backend (OAuth callback → dashboard → repo → PR list → review
+detail with findings) and fixed two real issues found that way: a wrong
+"back" link (was using the PR id instead of the repository id) and a Base
+UI `nativeButton` console warning on link-styled buttons. The diff panel
+degrades gracefully (just doesn't render) when the diff fetch fails, which
+is what happens without a real GitHub App installation — **not yet
+verified against a live GitHub App + real repo**, only mocked data.
 
 ### Phase 4 — Expand AI capabilities
 - [ ] Security analysis prompt (or pair the LLM with a static tool like

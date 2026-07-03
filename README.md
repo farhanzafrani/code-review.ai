@@ -3,13 +3,14 @@
 See [`INSTRUCTIONS.md`](INSTRUCTIONS.md) for the project objective and the
 full phased implementation plan. This README covers day-to-day setup for
 what's built so far (Phase 0 + 1: backend skeleton, auth, webhook intake;
-Phase 2: AI review of the PR diff, posted back to GitHub).
+Phase 2: AI review of the PR diff, posted back to GitHub; Phase 3: Next.js
+dashboard for logging in, connecting repos, and watching reviews land).
 
 ## Layout
 
 ```
-apps/backend/    FastAPI app + Celery worker (implemented)
-apps/frontend/   Next.js dashboard (Phase 3, not yet built)
+apps/backend/    FastAPI app + Celery worker
+apps/frontend/   Next.js dashboard (TypeScript, Tailwind, shadcn/ui)
 infra/docker/    docker-compose.yml for local dev
 ```
 
@@ -66,16 +67,18 @@ Phase 2 calls OpenAI to review the diff. Fill in `.env`:
 With Docker available:
 
 ```
-cp .env.example .env   # then fill in the GitHub values above
+cp .env.example .env   # then fill in the GitHub/OpenAI values above
 docker compose -f infra/docker/docker-compose.yml up --build
 ```
 
 This starts Postgres, Redis, the FastAPI backend (with `alembic upgrade
-head` run automatically on boot), and a Celery worker.
+head` run automatically on boot), a Celery worker, and the Next.js
+frontend on `http://localhost:3000`.
 
-Without Docker, for local backend-only development:
+Without Docker:
 
 ```
+# backend
 cd apps/backend
 uv sync
 cp ../../.env.example .env   # adjust DATABASE_URL/REDIS_URL to localhost
@@ -83,21 +86,41 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 # in another terminal:
 uv run celery -A app.workers.celery_app worker --loglevel=info
+
+# frontend (in another terminal)
+cd apps/frontend
+npm install
+cp .env.local.example .env.local
+npm run dev
 ```
 
 ## 4. Try it
 
+- Open `http://localhost:3000` → **Sign in with GitHub** → you land on
+  `/dashboard`.
+- Click **Connect a repo** (only shown once `NEXT_PUBLIC_GITHUB_APP_SLUG`
+  is set in `apps/frontend/.env.local`) to install the GitHub App, or just
+  install it directly from the app's GitHub settings page.
+- Open the repo from the dashboard to see its PRs and review status
+  (Pending → Reviewing… → Reviewed/Failed, polling automatically).
+- Click into a PR to see the AI summary, per-bug findings, and the diff.
+- Opening/pushing to a PR on a connected repo creates a `PullRequest` +
+  `Review` row, fires a Celery task, and within a minute or two a real AI
+  review comment appears both on GitHub and on the dashboard. Check worker
+  logs if it doesn't show up — the task marks the `Review` row `failed`
+  with an error message on any GitHub/OpenAI error instead of raising.
+
+Backend API reference (all except `/health` and the two `/auth/github/*`
+routes require `Authorization: Bearer <token>`):
+
 - `GET /health` — liveness check.
-- `GET /auth/github/login` — starts the GitHub OAuth flow, redirects to
-  GitHub, and on callback returns `{"access_token": "...", "token_type":
-  "bearer"}`. Use that as a `Authorization: Bearer <token>` header.
-- `GET /users/me` — protected route, returns the logged-in user.
-- Install the GitHub App on a repo → a `Repository` row is created.
-- Open or push to a PR on that repo → a `PullRequest` + `Review` row is
-  created, a Celery task fires, and within a minute or two a real AI review
-  comment appears on the PR (findings + summary). Check worker logs if it
-  doesn't show up — the task marks the `Review` row `failed` with an error
-  message on any GitHub/OpenAI error instead of raising.
+- `GET /auth/github/login` / `GET /auth/github/callback` — OAuth flow;
+  callback redirects to `${FRONTEND_URL}/auth/callback?token=...`.
+- `GET /users/me` — the logged-in user.
+- `GET /repositories`, `DELETE /repositories/{id}` — list / disconnect.
+- `GET /repositories/{id}/pull-requests` — PRs + latest review status.
+- `GET /pull-requests/{id}` — PR detail + latest review.
+- `GET /pull-requests/{id}/diff` — live unified diff, proxied from GitHub.
 
 ## Development
 
@@ -105,4 +128,9 @@ uv run celery -A app.workers.celery_app worker --loglevel=info
 cd apps/backend
 uv run ruff check app          # lint
 uv run alembic revision --autogenerate -m "message"   # new migration
+
+cd apps/frontend
+npm run lint                   # eslint
+npx tsc --noEmit               # typecheck
+npm run build                  # production build
 ```

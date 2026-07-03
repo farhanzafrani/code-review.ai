@@ -8,7 +8,6 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import TokenResponse
 from app.services.github_app import build_authorize_url, exchange_oauth_code, fetch_github_user
 
 router = APIRouter(prefix="/auth/github", tags=["auth"])
@@ -26,13 +25,13 @@ def login(response: Response) -> RedirectResponse:
     return redirect
 
 
-@router.get("/callback", response_model=TokenResponse)
+@router.get("/callback")
 def callback(
     code: str,
     state: str,
     oauth_state: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
-) -> TokenResponse:
+) -> RedirectResponse:
     if not oauth_state or state != oauth_state:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid OAuth state")
 
@@ -56,7 +55,7 @@ def callback(
     db.commit()
     db.refresh(user)
 
-    # Phase 3 (frontend) will swap this for a redirect that hands the token
-    # to the SPA; returning JSON directly keeps this endpoint testable now.
     jwt_token = create_access_token(subject=str(user.id))
-    return TokenResponse(access_token=jwt_token)
+    redirect = RedirectResponse(f"{settings.frontend_url}/auth/callback?token={jwt_token}")
+    redirect.delete_cookie(STATE_COOKIE)
+    return redirect
