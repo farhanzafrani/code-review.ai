@@ -10,7 +10,7 @@ from app.db.session import SessionLocal
 from app.models.pull_request import PullRequest
 from app.models.repository import Repository
 from app.models.review import Review
-from app.workers.tasks import process_pull_request
+from app.workers.tasks import index_repository_task, process_pull_request
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
@@ -26,8 +26,9 @@ def _verify_signature(raw_body: bytes, signature_header: str | None) -> None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid signature")
 
 
-def _upsert_repository(db: Session, repo_payload: dict, installation_id: int) -> Repository:
+def _upsert_repository(db: Session, repo_payload: dict, installation_id: int) -> tuple[Repository, bool]:
     repo = db.query(Repository).filter(Repository.github_repo_id == repo_payload["id"]).one_or_none()
+    created = False
     if repo is None:
         repo = Repository(
             github_repo_id=repo_payload["id"],
@@ -36,39 +37,48 @@ def _upsert_repository(db: Session, repo_payload: dict, installation_id: int) ->
         )
         db.add(repo)
         db.flush()
+        created = True
     else:
         repo.full_name = repo_payload["full_name"]
         repo.is_active = True
-    return repo
+    return repo, created
 
 
-def _handle_installation(db: Session, payload: dict) -> None:
+def _handle_installation(db: Session, payload: dict) -> list[int]:
     installation_id = payload["installation"]["id"]
     action = payload["action"]
     if action == "deleted":
         repos = db.query(Repository).filter(Repository.github_installation_id == installation_id)
         repos.update({Repository.is_active: False})
-        return
+        return []
+    new_repo_ids = []
     for repo_payload in payload.get("repositories", []):
-        _upsert_repository(db, repo_payload, installation_id)
+        repo, created = _upsert_repository(db, repo_payload, installation_id)
+        if created:
+            new_repo_ids.append(repo.id)
+    return new_repo_ids
 
 
-def _handle_installation_repositories(db: Session, payload: dict) -> None:
+def _handle_installation_repositories(db: Session, payload: dict) -> list[int]:
     installation_id = payload["installation"]["id"]
+    new_repo_ids = []
     for repo_payload in payload.get("repositories_added", []):
-        _upsert_repository(db, repo_payload, installation_id)
+        repo, created = _upsert_repository(db, repo_payload, installation_id)
+        if created:
+            new_repo_ids.append(repo.id)
     for repo_payload in payload.get("repositories_removed", []):
         repo = db.query(Repository).filter(Repository.github_repo_id == repo_payload["id"]).one_or_none()
         if repo:
             repo.is_active = False
+    return new_repo_ids
 
 
-def _handle_pull_request(db: Session, payload: dict) -> None:
+def _handle_pull_request(db: Session, payload: dict) -> list[int]:
     if payload["action"] not in ("opened", "synchronize", "reopened"):
-        return
+        return []
 
     installation_id = payload["installation"]["id"]
-    repo = _upsert_repository(db, payload["repository"], installation_id)
+    repo, created = _upsert_repository(db, payload["repository"], installation_id)
 
     pr_payload = payload["pull_request"]
     pr = db.query(PullRequest).filter(PullRequest.github_pr_id == pr_payload["id"]).one_or_none()
@@ -96,6 +106,7 @@ def _handle_pull_request(db: Session, payload: dict) -> None:
 
     db.commit()
     process_pull_request.delay(review.id)
+    return [repo.id] if created else []
 
 
 @router.post("/github", status_code=status.HTTP_202_ACCEPTED)
@@ -113,16 +124,20 @@ async def github_webhook(
 
     db = SessionLocal()
     try:
+        new_repo_ids: list[int] = []
         if x_github_event == "installation":
-            _handle_installation(db, payload)
+            new_repo_ids = _handle_installation(db, payload)
         elif x_github_event == "installation_repositories":
-            _handle_installation_repositories(db, payload)
+            new_repo_ids = _handle_installation_repositories(db, payload)
         elif x_github_event == "pull_request":
-            _handle_pull_request(db, payload)
+            new_repo_ids = _handle_pull_request(db, payload)
         else:
             logger.info("Ignoring unhandled GitHub event: %s", x_github_event)
         db.commit()
     finally:
         db.close()
+
+    for repo_id in new_repo_ids:
+        index_repository_task.delay(repo_id)
 
     return {"status": "accepted"}

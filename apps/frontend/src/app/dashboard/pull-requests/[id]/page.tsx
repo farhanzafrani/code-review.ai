@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { DiffView } from "@/components/diff-view";
+import { GenerationPanel } from "@/components/generation-panel";
 import { SeverityBadge } from "@/components/severity-badge";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,6 +49,7 @@ export default function PullRequestDetailPage() {
 
   const review = pr?.latest_review ?? null;
   const bugs = review?.raw_result?.bugs ?? [];
+  const securityIssues = review?.raw_result?.security_issues ?? [];
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -100,24 +103,53 @@ export default function PullRequestDetailPage() {
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm">{review.summary}</p>
             <Separator />
-            {bugs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No issues found in this diff.</p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {bugs.map((bug, i) => (
-                  <div key={i} className="flex flex-col gap-1 rounded-md border p-3">
-                    <div className="flex items-center gap-2">
-                      <SeverityBadge severity={bug.severity} />
-                      <code className="text-xs text-muted-foreground">{bug.file}</code>
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">Bugs ({bugs.length})</h3>
+              {bugs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No bugs found in this diff.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {bugs.map((bug, i) => (
+                    <div key={i} className="flex flex-col gap-1 rounded-md border p-3">
+                      <div className="flex items-center gap-2">
+                        <SeverityBadge severity={bug.severity} />
+                        <code className="text-xs text-muted-foreground">{bug.file}</code>
+                      </div>
+                      <p className="text-sm">{bug.description}</p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium">Suggested fix:</span> {bug.suggestion}
+                      </p>
                     </div>
-                    <p className="text-sm">{bug.description}</p>
-                    <p className="text-sm text-muted-foreground">
-                      <span className="font-medium">Suggested fix:</span> {bug.suggestion}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
+            <Separator />
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">🔒 Security ({securityIssues.length})</h3>
+              {securityIssues.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No security issues found.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {securityIssues.map((issue, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-col gap-1 rounded-md border border-destructive/30 p-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <SeverityBadge severity={issue.severity} />
+                        <Badge variant="outline">{issue.category}</Badge>
+                        <code className="text-xs text-muted-foreground">{issue.file}</code>
+                      </div>
+                      <p className="text-sm">{issue.description}</p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium">Recommendation:</span> {issue.recommendation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -131,6 +163,13 @@ export default function PullRequestDetailPage() {
             <DiffView diff={diff} />
           </CardContent>
         </Card>
+      )}
+
+      {pr && (
+        <>
+          <GenerationPanel pullRequestId={pr.id} action="generate-tests" label="Unit tests" />
+          <GenerationPanel pullRequestId={pr.id} action="generate-docs" label="Documentation" />
+        </>
       )}
     </div>
   );

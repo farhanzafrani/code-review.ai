@@ -4,7 +4,9 @@ See [`INSTRUCTIONS.md`](INSTRUCTIONS.md) for the project objective and the
 full phased implementation plan. This README covers day-to-day setup for
 what's built so far (Phase 0 + 1: backend skeleton, auth, webhook intake;
 Phase 2: AI review of the PR diff, posted back to GitHub; Phase 3: Next.js
-dashboard for logging in, connecting repos, and watching reviews land).
+dashboard for logging in, connecting repos, and watching reviews land;
+Phase 4: security findings, on-demand test/doc generation, and a Qdrant-
+backed RAG pass so reviews see more than just the raw diff).
 
 ## Layout
 
@@ -62,6 +64,9 @@ Phase 2 calls OpenAI to review the diff. Fill in `.env`:
 - `MAX_DIFF_CHARS` — diffs longer than this are truncated before being sent
   to the model (defaults to 30,000).
 
+Phase 4 also uses OpenAI for embeddings (`EMBEDDING_MODEL`, defaults to
+`text-embedding-3-small`) — no extra key needed, same `OPENAI_API_KEY`.
+
 ## 3. Run it
 
 With Docker available:
@@ -71,8 +76,8 @@ cp .env.example .env   # then fill in the GitHub/OpenAI values above
 docker compose -f infra/docker/docker-compose.yml up --build
 ```
 
-This starts Postgres, Redis, the FastAPI backend (with `alembic upgrade
-head` run automatically on boot), a Celery worker, and the Next.js
+This starts Postgres, Redis, Qdrant, the FastAPI backend (with `alembic
+upgrade head` run automatically on boot), a Celery worker, and the Next.js
 frontend on `http://localhost:3000`.
 
 Without Docker:
@@ -106,9 +111,19 @@ npm run dev
 - Click into a PR to see the AI summary, per-bug findings, and the diff.
 - Opening/pushing to a PR on a connected repo creates a `PullRequest` +
   `Review` row, fires a Celery task, and within a minute or two a real AI
-  review comment appears both on GitHub and on the dashboard. Check worker
-  logs if it doesn't show up — the task marks the `Review` row `failed`
-  with an error message on any GitHub/OpenAI error instead of raising.
+  review comment appears both on GitHub and on the dashboard — now
+  including a **Security** section alongside **Bugs**. Check worker logs
+  if it doesn't show up — the task marks the `Review` row `failed` with an
+  error message on any GitHub/OpenAI error instead of raising.
+- Installing the app on a repo also queues a one-time background index of
+  its default branch into Qdrant (best-effort — logged, not retried).
+  Later reviews on that repo retrieve relevant existing code as extra
+  context beyond the diff. Indexing does **not** re-run on every push, so
+  it can drift from the repo's current state; re-trigger manually if
+  needed (see note below).
+- On a PR's detail page, click **Generate** under **Unit tests** or
+  **Documentation** to get an on-demand, synchronous LLM pass over that
+  PR's diff — not persisted, not posted to GitHub, just shown in the UI.
 
 Backend API reference (all except `/health` and the two `/auth/github/*`
 routes require `Authorization: Bearer <token>`):
@@ -121,6 +136,12 @@ routes require `Authorization: Bearer <token>`):
 - `GET /repositories/{id}/pull-requests` — PRs + latest review status.
 - `GET /pull-requests/{id}` — PR detail + latest review.
 - `GET /pull-requests/{id}/diff` — live unified diff, proxied from GitHub.
+- `POST /pull-requests/{id}/generate-tests` — on-demand test generation.
+- `POST /pull-requests/{id}/generate-docs` — on-demand doc generation.
+
+There's no re-index endpoint yet — to force a fresh index, delete the
+repo's Qdrant collection (`repo_{id}`) and re-deliver an `installation`
+webhook, or call `app.services.rag.index_repository(...)` directly.
 
 ## Development
 

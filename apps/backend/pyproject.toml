@@ -15,6 +15,7 @@ dependencies = [
     "celery[redis]>=5.4",
     "redis>=5.0",
     "openai>=1.50",
+    "qdrant-client>=1.11",
 ]
 
 [dependency-groups]

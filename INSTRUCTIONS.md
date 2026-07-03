@@ -177,17 +177,47 @@ is what happens without a real GitHub App installation — **not yet
 verified against a live GitHub App + real repo**, only mocked data.
 
 ### Phase 4 — Expand AI capabilities
-- [ ] Security analysis prompt (or pair the LLM with a static tool like
-      Bandit/Semgrep and have the LLM summarize findings).
-- [ ] Unit test generation for changed functions.
-- [ ] Documentation generation (docstrings / README diffs) for changed code.
-- [ ] Add Qdrant + LangChain: index the repo's codebase so review prompts
-      are RAG-augmented with relevant context beyond the diff.
-- [ ] (Stretch) Local LLM via Ollama/Llama 3 as a fallback/cheaper mode,
-      selectable via config.
+- [x] Security analysis prompt: extended the review schema with a distinct
+      `security_issues` list (category/severity/file/description/
+      recommendation), separate from `bugs`, with prompt instructions not
+      to double-report the same finding in both. Chose this over
+      Bandit/Semgrep because the platform reviews arbitrary-language repos
+      and the prompt-only approach needed no new subprocess/sandboxing
+      infra — can still add a static tool later to complement it.
+- [x] Unit test generation for changed functions — on demand, not
+      automatic (see "Done when" below).
+- [x] Documentation generation (docstrings + a short markdown snippet) for
+      changed code — also on demand.
+- [x] Add Qdrant (skipped LangChain — chunk/embed/upsert/query directly via
+      `qdrant-client` + OpenAI embeddings was simpler and needed no extra
+      framework): indexes a connected repo's default branch once at
+      connect-time, retrieved chunks get folded into the review prompt as
+      extra context beyond the diff. Indexing is best-effort (failures
+      logged, not retried) and query_context() fails open — a Qdrant/
+      embedding problem degrades to a diff-only review, never blocks it.
+- [ ] (Stretch, deferred) Local LLM via Ollama/Llama 3 as a fallback/
+      cheaper mode. Not started — explicitly marked stretch in the plan;
+      revisit if OpenAI cost/availability becomes a real constraint.
 
 **Done when:** the review comment includes security notes, and a generated
 test file / doc snippet can be produced on demand from the dashboard.
+
+Verified: backend — ruff clean; mocked end-to-end tests covering the
+security schema (strict-mode shape), the webhook → `index_repository_task`
+trigger (fires once on repo creation, not on redelivery), the full
+`process_pull_request` pipeline with RAG context threaded into
+`run_ai_review`, and both `generate-tests`/`generate-docs` endpoints via
+`TestClient`. Frontend — `tsc`/`eslint`/`next build` clean; walked the PR
+detail page in headless Chrome against a mocked backend and confirmed the
+Bugs/Security sections and both Generate panels render correctly with no
+console warnings. **Not yet exercised end-to-end against a live repo** —
+in particular, indexing a real repo's file tree and RAG actually changing
+review quality is unverified beyond the mocked pipeline test above.
+
+Known limitations to revisit later: indexing doesn't re-run on push (only
+at connect-time), so retrieved context can drift stale; no re-index
+endpoint yet (see README); generated tests/docs are ephemeral (not
+persisted, not posted back to GitHub).
 
 ### Phase 5 — SonarQube integration
 - [ ] Run a SonarQube scan (self-hosted or Sonar API) as part of the PR

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     max_diff_chars: int = 30_000
 
+    qdrant_url: str = "http://localhost:6333"
+    embedding_model: str = "text-embedding-3-small"
+    rag_top_k: int = 5
+
 
 @lru_cache
 def get_settings() -> Settings:

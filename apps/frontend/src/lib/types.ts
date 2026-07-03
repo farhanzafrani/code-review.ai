@@ -14,16 +14,46 @@ export interface Repository {
 
 export type ReviewStatus = "pending" | "running" | "completed" | "failed";
 
+export type Severity = "low" | "medium" | "high" | "critical";
+
 export interface Bug {
   file: string;
-  severity: "low" | "medium" | "high" | "critical";
+  severity: Severity;
   description: string;
   suggestion: string;
+}
+
+export type SecurityCategory =
+  | "injection"
+  | "secrets"
+  | "auth"
+  | "crypto"
+  | "insecure_config"
+  | "dependency"
+  | "other";
+
+export interface SecurityIssue {
+  file: string;
+  severity: Severity;
+  category: SecurityCategory;
+  description: string;
+  recommendation: string;
 }
 
 export interface ReviewResult {
   summary: string;
   bugs: Bug[];
+  security_issues: SecurityIssue[];
+}
+
+export interface GeneratedFile {
+  filename: string;
+  content: string;
+}
+
+export interface GenerationResult {
+  notes: string;
+  files: GeneratedFile[];
 }
 
 export interface Review {
