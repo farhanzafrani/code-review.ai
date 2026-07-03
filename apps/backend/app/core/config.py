@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     github_app_private_key_path: str = ""
     github_app_webhook_secret: str = ""
 
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    max_diff_chars: int = 30_000
+
 
 @lru_cache
 def get_settings() -> Settings:

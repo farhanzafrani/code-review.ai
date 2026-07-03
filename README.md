@@ -2,8 +2,8 @@
 
 See [`INSTRUCTIONS.md`](INSTRUCTIONS.md) for the project objective and the
 full phased implementation plan. This README covers day-to-day setup for
-what's built so far (Phase 0 + Phase 1: backend skeleton, auth, webhook
-intake).
+what's built so far (Phase 0 + 1: backend skeleton, auth, webhook intake;
+Phase 2: AI review of the PR diff, posted back to GitHub).
 
 ## Layout
 
@@ -50,7 +50,18 @@ ngrok http 8000
 
 Then set the GitHub App's Webhook URL to `<ngrok-url>/webhooks/github`.
 
-## 2. Run it
+## 2. Set up OpenAI
+
+Phase 2 calls OpenAI to review the diff. Fill in `.env`:
+
+- `OPENAI_API_KEY` — from https://platform.openai.com/api-keys.
+- `OPENAI_MODEL` — defaults to `gpt-4o-mini`; any model that supports
+  [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
+  works.
+- `MAX_DIFF_CHARS` — diffs longer than this are truncated before being sent
+  to the model (defaults to 30,000).
+
+## 3. Run it
 
 With Docker available:
 
@@ -74,7 +85,7 @@ uv run uvicorn app.main:app --reload
 uv run celery -A app.workers.celery_app worker --loglevel=info
 ```
 
-## 3. Try it
+## 4. Try it
 
 - `GET /health` — liveness check.
 - `GET /auth/github/login` — starts the GitHub OAuth flow, redirects to
@@ -83,8 +94,10 @@ uv run celery -A app.workers.celery_app worker --loglevel=info
 - `GET /users/me` — protected route, returns the logged-in user.
 - Install the GitHub App on a repo → a `Repository` row is created.
 - Open or push to a PR on that repo → a `PullRequest` + `Review` row is
-  created and a Celery task fires (check worker logs — Phase 1 only logs
-  and marks the review `completed`; Phase 2 adds the actual AI call).
+  created, a Celery task fires, and within a minute or two a real AI review
+  comment appears on the PR (findings + summary). Check worker logs if it
+  doesn't show up — the task marks the `Review` row `failed` with an error
+  message on any GitHub/OpenAI error instead of raising.
 
 ## Development
 

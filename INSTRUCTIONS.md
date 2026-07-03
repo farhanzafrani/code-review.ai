@@ -120,16 +120,28 @@ check — see `README.md` for how to wire up a real GitHub App and confirm it
 end-to-end against a live repo (needs a reachable webhook URL, e.g. ngrok).
 
 ### Phase 2 — AI code review MVP (the core vertical slice)
-- [ ] Celery task: fetch the PR diff via GitHub API (`GET
-      /repos/.../pulls/{n}/files` or the diff URL).
-- [ ] Single OpenAI call: prompt with the diff, ask for bugs found,
-      plain-English explanation, and suggested fixes as structured JSON.
-- [ ] Post the result back as a PR review comment via the GitHub API.
-- [ ] Store the `Review` result in Postgres.
+- [x] Celery task: fetch the PR diff via GitHub API (diff media type on
+      `GET /repos/.../pulls/{n}`).
+- [x] Single OpenAI call: prompt with the diff, ask for bugs found,
+      plain-English explanation, and suggested fixes as structured JSON
+      (OpenAI Structured Outputs, `app/services/ai_review.py`).
+- [x] Post the result back as a PR review comment via the GitHub API
+      (`POST /pulls/{n}/reviews`, `app/services/github_api.py`).
+- [x] Store the `Review` result (status, summary, raw JSON) in Postgres.
 
 **Done when:** a PR on the test repo gets a real AI-generated review comment
 automatically, with no manual steps. **This is the v1 milestone — stop and
 validate it works reliably before moving on.**
+
+Verified so far: ruff clean, and a fully mocked run of
+`process_pull_request` against an in-memory SQLite DB (installation token /
+diff fetch / OpenAI call / GitHub post all mocked) exercising both the
+success path (`Review.status == "completed"`, summary + raw findings
+persisted, correct owner/repo/PR number threaded through) and the failure
+path (`Review.status == "failed"` with the error message, no exception
+propagated). **Not yet verified against a real GitHub App + live OpenAI
+key** — do that next: set `OPENAI_API_KEY` and open a real PR on the
+connected test repo, confirm the review comment actually lands.
 
 ### Phase 3 — Frontend dashboard
 - [ ] GitHub OAuth login flow in Next.js, calling the backend for the JWT.
