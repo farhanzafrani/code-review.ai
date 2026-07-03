@@ -56,11 +56,30 @@ export interface GenerationResult {
   files: GeneratedFile[];
 }
 
+export type QualityGateStatus = "OK" | "ERROR" | "NONE";
+
+export interface SonarIssue {
+  rule: string;
+  severity: string;
+  message: string;
+  component: string;
+  line: number | null;
+}
+
+export interface SonarResult {
+  quality_gate?: { status: QualityGateStatus; conditions?: unknown[] };
+  issues?: SonarIssue[];
+  error?: string;
+}
+
 export interface Review {
   id: number;
   status: ReviewStatus;
   summary: string | null;
   raw_result: ReviewResult | null;
+  sonar_status: ReviewStatus | null;
+  sonar_quality_gate: QualityGateStatus | null;
+  sonar_result: SonarResult | null;
   created_at: string;
   updated_at: string;
 }

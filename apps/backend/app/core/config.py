@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     rag_top_k: int = 5
 
+    # Off by default: needs a running SonarQube instance + a token with
+    # "Create Projects" permission. See README before enabling.
+    sonarqube_enabled: bool = False
+    sonarqube_url: str = "http://localhost:9000"
+    sonarqube_token: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

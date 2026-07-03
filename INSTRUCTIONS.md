@@ -220,13 +220,49 @@ endpoint yet (see README); generated tests/docs are ephemeral (not
 persisted, not posted back to GitHub).
 
 ### Phase 5 — SonarQube integration
-- [ ] Run a SonarQube scan (self-hosted or Sonar API) as part of the PR
-      pipeline.
-- [ ] Merge Sonar's quality-gate results into the same review report as the
-      AI output (single unified PR comment/dashboard view).
+- [x] Run a SonarQube scan (self-hosted, via docker-compose) as part of the
+      PR pipeline: `app/services/sonar.py` shallow-clones the PR head
+      (`git fetch refs/pull/{n}/head`), auto-creates a per-repo Sonar
+      project (`codereviewai_{repository_id}`) if missing, and runs
+      `sonar-scanner` with `sonar.qualitygate.wait=true` so the scan blocks
+      until the quality gate is computed.
+- [x] Merge Sonar's quality-gate results into the same review report as the
+      AI output: `app/services/review_comment.py` gates on *both* the AI
+      pipeline and (when enabled) the Sonar pipeline reaching a terminal
+      state, row-locks the Review to avoid a double-post race, and edits
+      the existing GitHub review (`PUT .../reviews/{id}`) if one pipeline
+      already posted before the other finished — so it's always one
+      comment, never two, regardless of which finishes first.
+- [x] Off by default (`SONARQUBE_ENABLED=false`) — chose this because,
+      unlike every other integration so far, this one needs a real running
+      SonarQube instance plus `git`/`sonar-scanner`/a JVM in the worker
+      image, none of which exist in this dev sandbox. Self-hosted via
+      docker-compose (profile-gated, `--profile sonarqube`) rather than
+      SonarCloud, matching every other service in the stack being local
+      with no external account needed.
 
 **Done when:** a PR review shows both AI findings and Sonar quality-gate
 status together.
+
+Verified: DB migration (0002) applies cleanly; ruff clean; the full
+`run_sonar_scan` task mocked end-to-end (project ensure/checkout/scanner
+all mocked) including the specific edge case where sonar-scanner exits
+non-zero for a *failed quality gate* (correctly recorded as a normal
+`completed` result with `quality_gate=ERROR`, not an infra failure) versus
+a genuine infra error (correctly recorded as `sonar_status=failed`); the
+webhook enqueues `run_sonar_scan` only when the flag is on (confirmed both
+ways); the unified-comment gating/locking logic (wait for both, post once,
+edit on the second finisher) tested directly against SQLite. Frontend
+tsc/eslint/build clean, quality-gate badge + issues list confirmed in a
+headless-Chrome walkthrough against mocked data.
+
+**Not verified — cannot be, in this sandbox:** the actual `git`/
+`sonar-scanner`/JRE installation in the Dockerfile (no Docker here to
+build it), and a real scan against a live SonarQube instance. The
+Dockerfile changes are based on SonarQube's documented scanner-CLI install
+steps and a version (6.2.1.4610) confirmed to actually resolve/download,
+but the build itself is untested. Try `docker compose --profile sonarqube
+up --build` and open a real PR before relying on this.
 
 ### Phase 6 — CI/CD & deployment automation
 - [ ] `.github/workflows`: run backend/frontend tests + lint on every PR.

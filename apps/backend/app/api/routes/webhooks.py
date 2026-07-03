@@ -10,7 +10,7 @@ from app.db.session import SessionLocal
 from app.models.pull_request import PullRequest
 from app.models.repository import Repository
 from app.models.review import Review
-from app.workers.tasks import index_repository_task, process_pull_request
+from app.workers.tasks import index_repository_task, process_pull_request, run_sonar_scan
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
@@ -106,6 +106,8 @@ def _handle_pull_request(db: Session, payload: dict) -> list[int]:
 
     db.commit()
     process_pull_request.delay(review.id)
+    if settings.sonarqube_enabled:
+        run_sonar_scan.delay(review.id)
     return [repo.id] if created else []
 
 

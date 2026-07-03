@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DiffView } from "@/components/diff-view";
 import { GenerationPanel } from "@/components/generation-panel";
+import { QualityGateBadge } from "@/components/quality-gate-badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -45,11 +46,14 @@ export default function PullRequestDetailPage() {
   }, [token, id]);
 
   const status = pr?.latest_review?.status ?? null;
-  usePolling(loadPr, POLL_INTERVAL_MS, status === "pending" || status === "running");
+  const sonarStatus = pr?.latest_review?.sonar_status ?? null;
+  const inFlight = (s: typeof status) => s === "pending" || s === "running";
+  usePolling(loadPr, POLL_INTERVAL_MS, inFlight(status) || inFlight(sonarStatus));
 
   const review = pr?.latest_review ?? null;
   const bugs = review?.raw_result?.bugs ?? [];
   const securityIssues = review?.raw_result?.security_issues ?? [];
+  const sonarIssues = review?.sonar_result?.issues ?? [];
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -150,6 +154,49 @@ export default function PullRequestDetailPage() {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {sonarStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle>🛡️ SonarQube</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {sonarStatus === "pending" || sonarStatus === "running" ? (
+              <p className="text-sm text-muted-foreground">Scan in progress…</p>
+            ) : sonarStatus === "failed" ? (
+              <p className="text-sm text-destructive">
+                Scan failed: {review?.sonar_result?.error}
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Quality Gate:</span>
+                  <QualityGateBadge status={review?.sonar_quality_gate ?? "NONE"} />
+                </div>
+                {sonarIssues.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No open issues.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-sm font-medium">Issues ({sonarIssues.length})</h3>
+                    {sonarIssues.map((issue, i) => (
+                      <div key={i} className="rounded-md border p-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{issue.severity}</Badge>
+                          <code className="text-xs text-muted-foreground">
+                            {issue.component}
+                            {issue.line ? `:${issue.line}` : ""}
+                          </code>
+                        </div>
+                        <p className="mt-1">{issue.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       )}

@@ -10,5 +10,8 @@ class ReviewOut(BaseModel):
     status: str
     summary: str | None
     raw_result: dict | None
+    sonar_status: str | None
+    sonar_quality_gate: str | None
+    sonar_result: dict | None
     created_at: datetime
     updated_at: datetime

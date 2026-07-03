@@ -6,7 +6,8 @@ what's built so far (Phase 0 + 1: backend skeleton, auth, webhook intake;
 Phase 2: AI review of the PR diff, posted back to GitHub; Phase 3: Next.js
 dashboard for logging in, connecting repos, and watching reviews land;
 Phase 4: security findings, on-demand test/doc generation, and a Qdrant-
-backed RAG pass so reviews see more than just the raw diff).
+backed RAG pass so reviews see more than just the raw diff; Phase 5:
+optional SonarQube static analysis merged into the same PR comment).
 
 ## Layout
 
@@ -67,7 +68,31 @@ Phase 2 calls OpenAI to review the diff. Fill in `.env`:
 Phase 4 also uses OpenAI for embeddings (`EMBEDDING_MODEL`, defaults to
 `text-embedding-3-small`) — no extra key needed, same `OPENAI_API_KEY`.
 
-## 3. Run it
+## 3. (Optional) Set up SonarQube
+
+Off by default (`SONARQUBE_ENABLED=false`) — unlike everything else in this
+app, this integration shells out to `git` and `sonar-scanner` against a
+real checkout of the PR and needs a running SonarQube instance, so it's a
+heavier local dependency. Skip this section unless you specifically want
+quality-gate results merged into the PR comment.
+
+1. Start it: `docker compose -f infra/docker/docker-compose.yml --profile sonarqube up -d sonarqube`
+   (needs ~2GB+ RAM; first boot takes a minute or two). On Linux you may
+   need to raise `vm.max_map_count` first: `sudo sysctl -w vm.max_map_count=262144`.
+2. Open `http://localhost:9000`, log in with `admin` / `admin`, and set a
+   new password when prompted.
+3. **My Account → Security → Generate Token** (a "Global Analysis Token"
+   is fine — it needs permission to create projects, which the admin
+   account has by default).
+4. In `.env`: set `SONARQUBE_ENABLED=true` and `SONARQUBE_TOKEN` to that
+   token. `SONARQUBE_URL` already defaults to `http://sonarqube:9000` to
+   match the compose network.
+5. Restart the `backend`/`worker` containers.
+
+There's no manual per-repo setup — the worker creates a SonarQube project
+per connected repo on first scan (key: `codereviewai_{repository_id}`).
+
+## 4. Run it
 
 With Docker available:
 
@@ -99,7 +124,7 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-## 4. Try it
+## 5. Try it
 
 - Open `http://localhost:3000` → **Sign in with GitHub** → you land on
   `/dashboard`.
@@ -124,6 +149,13 @@ npm run dev
 - On a PR's detail page, click **Generate** under **Unit tests** or
   **Documentation** to get an on-demand, synchronous LLM pass over that
   PR's diff — not persisted, not posted to GitHub, just shown in the UI.
+- If `SONARQUBE_ENABLED=true`, every PR also gets a Sonar scan running
+  alongside the AI review. Whichever finishes first posts the PR comment;
+  the other edits that same comment in place when it finishes, so you get
+  one unified comment instead of two — see the **SonarQube** card and the
+  quality gate badge on the PR detail page. A failed quality gate is a
+  normal scan result, not an error — it's recorded and shown just like a
+  passing one.
 
 Backend API reference (all except `/health` and the two `/auth/github/*`
 routes require `Authorization: Bearer <token>`):

@@ -34,6 +34,19 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  # Opt-in: `docker compose --profile sonarqube up` to include this.
+  # Needs ~2GB+ RAM and a one-time setup — see README before enabling
+  # SONARQUBE_ENABLED in .env.
+  sonarqube:
+    image: sonarqube:community
+    profiles: ["sonarqube"]
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+
   backend:
     build:
       context: ../../apps/backend
@@ -87,5 +100,8 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
   frontend_node_modules:
   frontend_next:

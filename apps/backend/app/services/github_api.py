@@ -47,6 +47,29 @@ def post_pr_review(
     return resp.json()
 
 
+def update_pr_review(
+    token: str,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    review_id: int,
+    body: str,
+) -> dict:
+    """Edit the body of an already-submitted PR review (e.g. to merge in
+    results that finished after the review was first posted)."""
+    resp = httpx.put(
+        f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}/reviews/{review_id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"body": body},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_default_branch(token: str, owner: str, repo: str) -> str:
     resp = httpx.get(
         f"{GITHUB_API}/repos/{owner}/{repo}",

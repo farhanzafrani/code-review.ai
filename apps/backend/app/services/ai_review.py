@@ -154,7 +154,9 @@ def run_ai_review(diff: str, pr_title: str, context_chunks: list[dict] | None = 
 _SEVERITY_EMOJI = {"low": "🔵", "medium": "🟡", "high": "🟠", "critical": "🔴"}
 
 
-def format_review_comment(result: dict, truncated: bool = False) -> str:
+def format_review_comment(result: dict) -> str:
+    """result may carry a "truncated" key (set by the caller before storing)
+    alongside the schema-shaped summary/bugs/security_issues fields."""
     lines = ["## 🤖 AI Code Review", "", result["summary"], ""]
 
     bugs = result.get("bugs", [])
@@ -184,7 +186,7 @@ def format_review_comment(result: dict, truncated: bool = False) -> str:
             lines.append(f"  _Recommendation:_ {issue['recommendation']}")
             lines.append("")
 
-    if truncated:
+    if result.get("truncated"):
         lines.append(
             f"> ⚠️ This diff was truncated to {settings.max_diff_chars:,} characters "
             "before review — some changes may not have been analyzed."
