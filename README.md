@@ -11,7 +11,10 @@ optional SonarQube static analysis merged into the same PR comment; Phase
 6: CI on every PR, Docker images published to GHCR on merge, and a Helm
 chart for deploying the platform itself to a local kind cluster; Phase 7:
 structured JSON logging, Prometheus metrics, live pipeline logs on the PR
-detail page, and in-app/Slack notifications when a review finishes).
+detail page, and in-app/Slack notifications when a review finishes;
+Phase 8: rate limiting, a secrets audit that found and fixed two real
+token leaks (see `SECURITY.md`), a burst-load test script, and CPU-based
+autoscaling for the worker in Kubernetes).
 
 ## Layout
 
@@ -180,7 +183,8 @@ Backend API reference (all except `/health`, `/metrics`, and the two
 - `GET /metrics` — Prometheus metrics (HTTP request count/latency). The
   worker serves its own separately on `WORKER_METRICS_PORT` (9200).
 - `GET /auth/github/login` / `GET /auth/github/callback` — OAuth flow;
-  callback redirects to `${FRONTEND_URL}/auth/callback?token=...`.
+  callback redirects to `${FRONTEND_URL}/auth/callback#token=...` (a URL
+  fragment, not a query param — see Phase 8 in `INSTRUCTIONS.md`).
 - `GET /users/me` — the logged-in user.
 - `GET /repositories`, `DELETE /repositories/{id}` — list / disconnect.
 - `GET /repositories/{id}/pull-requests` — PRs + latest review status.
@@ -216,6 +220,26 @@ docker build -t codereviewai-frontend:local -f apps/frontend/Dockerfile.prod app
 kind load docker-image codereviewai-backend:local codereviewai-frontend:local --name codereviewai
 helm upgrade --install codereviewai infra/k8s/helm/codereviewai --wait
 ```
+
+## 7. Hardening (Phase 8)
+
+- Every endpoint is rate-limited by client IP (`app/core/rate_limit.py`):
+  60/min for `/webhooks/github`, 120/min for everything else except
+  `/health` and `/metrics`. An over-limit request gets a plain `429`.
+- See [`SECURITY.md`](SECURITY.md) for the secrets-management review —
+  what was audited, two real token leaks that were found and fixed, and
+  the residual risks that were consciously left as-is.
+- `apps/backend/scripts/load_test_webhooks.py` fires a concurrent burst of
+  signed synthetic `pull_request` webhooks at a real running backend, to
+  exercise the webhook → DB → Celery path under load without needing real
+  GitHub/OpenAI credentials:
+  ```
+  cd apps/backend
+  uv run python scripts/load_test_webhooks.py --secret "$GITHUB_APP_WEBHOOK_SECRET" --count 100 --concurrency 20
+  ```
+- The worker Deployment has a CPU-based `HorizontalPodAutoscaler` (on by
+  default, 1-5 replicas at 70% target) — needs `metrics-server` on the
+  cluster, see `infra/k8s/README.md`.
 
 ## Development
 

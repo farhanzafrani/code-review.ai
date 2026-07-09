@@ -1,17 +1,21 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 import { useAuth } from "@/lib/auth-context";
 
-function CallbackInner() {
-  const params = useSearchParams();
+export default function AuthCallbackPage() {
   const router = useRouter();
   const { setToken } = useAuth();
 
   useEffect(() => {
-    const token = params.get("token");
+    // A URL fragment (#token=...), not a query param — the backend sends
+    // it this way so the token is never sent to any server (this page's
+    // own load included) and can't land in access logs or browser history.
+    // Fragments aren't visible to useSearchParams() (query string only),
+    // so read window.location.hash directly.
+    const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
     if (token) {
       setToken(token);
       router.replace("/dashboard");
@@ -19,17 +23,11 @@ function CallbackInner() {
       router.replace("/");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+  }, []);
 
-  return <p className="text-sm text-muted-foreground">Signing you in…</p>;
-}
-
-export default function AuthCallbackPage() {
   return (
     <main className="flex flex-1 items-center justify-center p-8">
-      <Suspense fallback={<p className="text-sm text-muted-foreground">Signing you in…</p>}>
-        <CallbackInner />
-      </Suspense>
+      <p className="text-sm text-muted-foreground">Signing you in…</p>
     </main>
   );
 }

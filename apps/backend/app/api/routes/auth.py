@@ -56,6 +56,10 @@ def callback(
     db.refresh(user)
 
     jwt_token = create_access_token(subject=str(user.id))
-    redirect = RedirectResponse(f"{settings.frontend_url}/auth/callback?token={jwt_token}")
+    # A URL fragment (#token=...), not a query param (?token=...): fragments
+    # are never sent to any server, so they can't end up in this app's own
+    # access logs, a reverse proxy's logs, or browser history the way a
+    # query param would.
+    redirect = RedirectResponse(f"{settings.frontend_url}/auth/callback#token={jwt_token}")
     redirect.delete_cookie(STATE_COOKIE)
     return redirect

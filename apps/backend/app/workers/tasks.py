@@ -67,7 +67,20 @@ def process_pull_request(review_id: int) -> None:
             db.commit()
 
         append_log(review_id, "Posting result to GitHub…")
-        maybe_post_comment(db, review_id)
+        try:
+            maybe_post_comment(db, review_id)
+        except Exception:
+            # Posting is a separate concern from the AI review itself —
+            # review.status is already correctly recorded above (including
+            # "failed", if that's what happened). A broken GitHub token/API
+            # call here must not also crash the whole task and drop it into
+            # Celery's own FAILURE state on top of that — surfaced by a
+            # burst load test (scripts/load_test_webhooks.py) where every
+            # task in the batch hit this exact path and each one crashed
+            # the task instead of leaving a clean "failed" review behind.
+            db.rollback()
+            logger.exception("Failed to post PR comment for review %s", review_id)
+            append_log(review_id, "Failed to post result to GitHub.")
         append_log(review_id, "Done.")
     finally:
         db.close()
@@ -127,7 +140,14 @@ def run_sonar_scan(review_id: int) -> None:
             append_log(review_id, f"Sonar scan failed: {exc}")
             db.commit()
 
-        maybe_post_comment(db, review_id)
+        try:
+            maybe_post_comment(db, review_id)
+        except Exception:
+            # See the matching comment in process_pull_request — posting
+            # failing must not crash the task on top of an already-recorded
+            # sonar_status.
+            db.rollback()
+            logger.exception("Failed to post PR comment for review %s", review_id)
     finally:
         db.close()
 

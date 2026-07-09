@@ -145,8 +145,9 @@ connected test repo, confirm the review comment actually lands.
 
 ### Phase 3 — Frontend dashboard
 - [x] GitHub OAuth login flow in Next.js, calling the backend for the JWT
-      (backend callback redirects to `/auth/callback?token=...`, stored in
-      localStorage via `lib/auth-context.tsx`).
+      (backend callback redirects to `/auth/callback#token=...` — changed
+      from a query param to a URL fragment in Phase 8, see below — stored
+      in localStorage via `lib/auth-context.tsx`).
 - [x] Repo list page (`/dashboard`): connect (link to the GitHub App
       install page) / disconnect (`DELETE /repositories/{id}`).
 - [x] PR list page (`/dashboard/repositories/[id]`) showing review status
@@ -425,10 +426,96 @@ real workspace (tested that the code posts to whatever URL is configured
 and swallows failures, not that a real Slack channel receives the message).
 
 ### Phase 8 — Hardening
-- [ ] Rate limiting on webhook + API endpoints.
-- [ ] Secrets management review (no plaintext tokens in DB/logs).
-- [ ] Load test the webhook → Celery → AI pipeline under burst PR activity.
-- [ ] Autoscaling config for Celery workers in Kubernetes.
+- [x] Rate limiting on webhook + API endpoints. `app/core/rate_limit.py`:
+      a fixed-window counter in Redis (already a dependency, no new
+      service needed), keyed by client IP. The webhook endpoint gets a
+      tighter window (60/min) than the rest of the API (120/min) since
+      it's the unauthenticated, internet-facing entry point into the whole
+      pipeline. Fails open on a Redis error — a broker hiccup must never
+      take down the API's ability to serve requests just because it also
+      can't count them. `/health` and `/metrics` are exempt.
+- [x] Secrets management review (no plaintext tokens in DB/logs). Found
+      and fixed two real leaks — see `SECURITY.md` for the full writeup:
+      1. `app/services/sonar.py` embedded the GitHub installation token in
+         a git remote URL and the SonarQube token in a `-Dsonar.token=`
+         CLI argument; `subprocess.CalledProcessError`/`TimeoutExpired`
+         stringify their full argv, and that string got persisted to
+         `Review.sonar_result`, rendered straight into the GitHub PR
+         comment, and logged — on *every* failed quality gate (an expected
+         outcome this code explicitly handles as normal, not a rare
+         error), not just genuine infra failures. Fixed with a
+         `_run_no_secrets()` wrapper that sanitizes any subprocess
+         exception, the GitHub token now going in via `GIT_ASKPASS`
+         instead of the URL, and the Sonar token via the `SONAR_TOKEN` env
+         var instead of a `-D` flag.
+      2. The session JWT was passed as `?token=...` in the OAuth callback
+         redirect — a query param lands in this app's own access logs, any
+         reverse proxy's logs, and browser history; a URL fragment
+         (`#token=...`) never reaches a server at all. Fixed in both the
+         backend redirect and the frontend callback page.
+      Also reviewed and found clean: installation tokens are never
+      persisted (fetched fresh per use), tokens only ever travel via the
+      `Authorization` header (never a URL, so a failed-request exception
+      can't echo one back), no `logger.*` call ever logs `settings` or a
+      secret field, the frontend has zero `console.*` calls, and
+      `.gitignore`/git history confirm no secret file has ever been
+      committed.
+- [x] Load test the webhook → Celery → AI pipeline under burst PR activity.
+      `apps/backend/scripts/load_test_webhooks.py` fires a concurrent burst
+      of signed synthetic `pull_request` webhooks at a real running
+      backend (fake installation, so downstream GitHub/OpenAI calls fail
+      fast in the worker — deliberately testing the webhook → DB → Celery
+      wiring under load, not a real AI review).
+- [x] Autoscaling config for Celery workers in Kubernetes.
+      `infra/k8s/helm/codereviewai/templates/worker-hpa.yaml`: a CPU-based
+      `HorizontalPodAutoscaler` (1-5 replicas, 70% target), on by default
+      via `worker.autoscaling` in `values.yaml`.
+
+**Done when:** a rate-limited request gets a 429 instead of hitting the
+pipeline, no secret can be found in the database or logs by construction
+(not just by not-yet-having-tried), a burst of PRs doesn't corrupt state
+or crash the worker, and the worker Deployment has a working HPA.
+
+Verified: backend — ruff clean; 5 new rate-limit tests (allows under
+limit, rejects over limit, independent keys, fails open on a Redis error,
+`/health` exempt — using a hand-rolled fake Redis client, since a real
+fail-open masks every assertion without one) and 5 new secrets-leak
+regression tests (`test_sonar_secrets.py`: neither token appears in a
+sanitized exception, the Sonar token goes in via env not argv, the GitHub
+token never appears in any argv at all; `test_auth_callback.py`: the
+redirect uses `#token=`, not `?token=`) — 26 tests total, up from 21.
+
+**Exercised against a real running stack**, not mocked: brought up
+Postgres + Redis + Qdrant + backend + worker via `docker-compose.yml` and
+ran the load test script from inside the backend container (100 requests,
+concurrency 20) — got exactly 60×`202` / 40×`429`, matching the 60/min
+webhook limit precisely, at 178 req/s and p95 latency of 0.27s. The first
+run surfaced a real bug the unit tests hadn't caught: every one of the 60
+accepted tasks crashed with "raised unexpected" in Celery (visible in
+`celery_tasks_total{state="FAILURE"}`) because `maybe_post_comment` has no
+error handling of its own and this sandbox has no real GitHub credentials
+— the AI review's own status was already correctly recorded as "failed"
+before that, but the *task* still crashed on top of it. Fixed by wrapping
+both `maybe_post_comment` calls in `tasks.py` in their own try/except;
+re-ran the identical load test and confirmed `celery_tasks_total{state=
+"SUCCESS"}` for all 60, zero "raised unexpected", and the DB left with
+120 reviews all in a clean terminal state (no stuck pending/running rows)
+across both runs. Worker survived 120 rapid task failures across two runs
+without restarting.
+
+For the HPA specifically: created a *second* real kind cluster, installed
+a real `metrics-server` (with `--kubelet-insecure-tls`, since kind's
+kubelet cert isn't signed by a CA metrics-server trusts by default),
+`helm upgrade --install --wait`ed the chart, and confirmed `kubectl get
+hpa` showed a real reported CPU percentage (`cpu: 3%/70%`), not `<unknown>`
+— i.e. the HPA is actually wired to a working metrics pipeline, not just
+an accepted-but-inert manifest.
+
+Not verified: an actual scale-out event (would need sustained CPU load
+held long enough to cross the 70% threshold, which wasn't worth the
+wall-clock time here — what's verified is that the HPA has real metrics
+to act on, which is the part that's usually silently broken); Slack/GHCR
+credentials are still untested against anything real, as noted in Phase 6.
 
 ---
 

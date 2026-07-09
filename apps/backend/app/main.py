@@ -5,6 +5,7 @@ from app.api.routes import auth, health, notifications, pull_requests, repositor
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.metrics import metrics_endpoint, prometheus_middleware
+from app.core.rate_limit import rate_limit_middleware
 
 configure_logging()
 
@@ -18,6 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.middleware("http")(prometheus_middleware)
+# Added last -> runs first: reject over-limit requests before they're even
+# counted in the HTTP metrics above.
+app.middleware("http")(rate_limit_middleware)
 
 app.include_router(health.router)
 app.include_router(auth.router)

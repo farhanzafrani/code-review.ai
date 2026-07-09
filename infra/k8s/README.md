@@ -8,7 +8,9 @@ This has been run end-to-end on a real kind cluster: cluster up → images
 loaded → `helm upgrade --install --wait` → alembic migrated a real Postgres
 to head → Celery worker connected to Redis and registered its tasks →
 backend `/health` and frontend `/` both returned 200 through their
-ClusterIP services.
+ClusterIP services. The worker's `HorizontalPodAutoscaler` (CPU-based) was
+also verified against a real `metrics-server` install — `kubectl get hpa`
+showed an actual reported CPU percentage, not just an accepted manifest.
 
 ## 1. Prerequisites
 
@@ -34,6 +36,19 @@ kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
   --timeout=120s
+```
+
+Install `metrics-server` — kind doesn't ship it, but the worker's
+`HorizontalPodAutoscaler` (`values.yaml`'s `worker.autoscaling`) needs it
+to read any CPU numbers at all; without it, `kubectl get hpa` just shows
+`<unknown>` forever instead of scaling anything:
+
+```
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# kind's kubelet cert isn't signed by a CA metrics-server trusts by default:
+kubectl patch deployment metrics-server -n kube-system --type=json \
+  -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+kubectl wait --for=condition=available deployment/metrics-server -n kube-system --timeout=90s
 ```
 
 ## 3. Build and load the images
@@ -118,3 +133,8 @@ existing Helm-installed spec — if you changed the chart's templates or
   default — see the comment at the top of `app/workers/celery_app.py`).
   There's no Prometheus/Grafana deployed by this chart to scrape them —
   point your own at those two targets if you want dashboards.
+- The worker autoscales on CPU (`worker.autoscaling`, on by default,
+  1-5 replicas at 70% target) — requires `metrics-server` (step 2 above)
+  or `kubectl get hpa` just shows `<unknown>` and never scales anything.
+  `worker.replicaCount` is only the *initial* replica count once the HPA
+  is enabled; it takes over from there.
