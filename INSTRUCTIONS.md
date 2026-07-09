@@ -93,8 +93,9 @@ end-to-end.**
       later in Phase 4).
 - [x] `.env.example` for secrets (GitHub App creds, OpenAI key, DB URL).
 - [x] Empty FastAPI app (`apps/backend`) that boots via `docker compose up`.
-- [ ] Empty Next.js app (`apps/frontend`) that boots via `docker compose up`
-      — deferred to Phase 3, no point scaffolding it before it's needed.
+- [x] Empty Next.js app (`apps/frontend`) that boots via `docker compose up`
+      — deferred to Phase 3 as planned (no point scaffolding it before it
+      was needed), delivered there and every phase since.
 
 **Done when:** `docker compose up` starts Postgres, Redis, an empty FastAPI
 `/health` endpoint, and the Next.js default page.
