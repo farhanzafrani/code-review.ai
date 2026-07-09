@@ -30,11 +30,29 @@ function readStoredToken(): string | null {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setTokenState] = useState<string | null>(readStoredToken);
+  // Must start identical on the server and the client's first hydration
+  // pass — reading localStorage here (available on the client, not the
+  // server) previously made those two renders disagree on `status`
+  // whenever a token was already stored, which is exactly a hydration
+  // mismatch React can't patch up. Deferred to the effect below instead,
+  // which only ever runs post-hydration.
+  const [token, setTokenState] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<Status>(() =>
-    readStoredToken() ? "loading" : "unauthenticated",
-  );
+  const [status, setStatus] = useState<Status>("loading");
+
+  useEffect(() => {
+    // localStorage is a browser-only external store with no SSR
+    // equivalent — this has to be a post-hydration effect, not something
+    // computed during render, which is exactly what this lint rule
+    // otherwise steers away from.
+    const stored = readStoredToken();
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTokenState(stored);
+    } else {
+      setStatus("unauthenticated");
+    }
+  }, []);
 
   useEffect(() => {
     if (!token) return;
