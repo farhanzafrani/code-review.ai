@@ -265,17 +265,75 @@ but the build itself is untested. Try `docker compose --profile sonarqube
 up --build` and open a real PR before relying on this.
 
 ### Phase 6 — CI/CD & deployment automation
-- [ ] `.github/workflows`: run backend/frontend tests + lint on every PR.
-- [ ] Docker build + push images on merge to main.
-- [ ] Kubernetes manifests / Helm chart for the platform itself
-      (backend, frontend, worker, Postgres, Redis, Qdrant).
-- [ ] NGINX ingress in front of the frontend/backend.
-- [ ] Terraform for the underlying cloud infra (cluster, DB, networking) —
-      scope to whatever provider is actually being used.
-- [ ] Slack notification on deploy success/failure.
+- [x] `.github/workflows`: run backend/frontend tests + lint on every PR
+      (`backend-ci.yml`: ruff + pytest; `frontend-ci.yml`: eslint + tsc +
+      next build).
+- [x] Docker build + push images on merge to main (`docker-publish.yml`,
+      pushes to GHCR — no extra registry account needed, uses the repo's
+      own `GITHUB_TOKEN`). Added `apps/frontend/Dockerfile.prod` (multi-
+      stage, `next.config.ts` `output: "standalone"`) since the existing
+      frontend Dockerfile is dev-only (`npm run dev` + volume mounts for
+      compose); the backend's existing Dockerfile is reused as-is.
+- [x] Kubernetes manifests / Helm chart for the platform itself
+      (`infra/k8s/helm/codereviewai`: backend + worker + frontend
+      Deployments, Postgres/Redis/Qdrant Deployments with PVCs for the
+      first and third, ConfigMap/Secret, NGINX Ingress).
+- [x] NGINX ingress in front of the frontend/backend — two hosts
+      (`codereviewai.local` → frontend, `api.codereviewai.local` →
+      backend), not path-based, since the backend's routes are mounted at
+      root with no `/api` prefix.
+- [x] Terraform — deferred with rationale, see `infra/terraform/README.md`:
+      the chosen target is local kind (see below), which has no cloud
+      account/VPC/managed-DB for Terraform to declare.
+- [x] Slack notification on deploy success/failure — a step in
+      `docker-publish.yml` posts to `secrets.SLACK_WEBHOOK_URL` if set,
+      skips cleanly if not (no Slack workspace connected in this
+      environment to test against a real webhook).
 
 **Done when:** merging to main automatically builds, tests, and deploys the
 platform itself to a real (or local kind/minikube) Kubernetes cluster.
+
+Verified: backend — added a real (previously-missing) `apps/backend/tests/`
+suite (health check, JWT roundtrip/expiry/tamper, webhook signature
+verify/reject) since no test files existed anywhere in the repo despite
+earlier phases' verification notes describing tests that were run but never
+persisted; `ruff check` and `pytest` both clean. Frontend — `eslint`,
+`tsc --noEmit`, and `next build` (both the dev config and the new
+standalone-output prod build) all clean. Both production Docker images
+(`apps/backend/Dockerfile`, `apps/frontend/Dockerfile.prod`) were actually
+built and booted via plain `docker run` — this also closes out Phase 5's
+"Dockerfile changes... untested" caveat for the backend image, which builds
+and serves `/health` correctly (previously only inferred from documented
+install steps, never built).
+
+The Helm chart was verified against a **real local kind cluster**, not just
+`helm lint`/`helm template`: created the cluster, `kind load docker-image`d
+both images, `helm upgrade --install --wait` brought up all 6
+pods (backend, worker, frontend, postgres, redis, qdrant) to Ready, alembic
+migrated a real Postgres to head (`0002`) via the init container, the
+Celery worker connected to Redis and registered all three tasks, and both
+`/health` (backend) and `/` (frontend) returned HTTP 200 through their
+ClusterIP services. This caught and fixed two real bugs that pure
+templating couldn't have: `uv run` (no `--no-sync`) re-triggers a
+lockfile/build check on every container start, which needs PyPI reachable
+and hangs/fails on any network-restricted cluster — fixed by adding
+`--no-sync` to the chart's `alembic`/`celery` command overrides; and the
+GitHub App private key Secret was mounted at `/run/secrets`, which is where
+Kubernetes' own automatic service-account-token mount also lands on
+Debian-based images (`/var/run` → `/run`) — a read-only mount there
+silently blocked kubelet from creating its own subdirectory underneath, so
+the backend/worker containers never started at all. Moved to
+`/etc/secrets/github-app`.
+
+Not verified: the ingress path (no real DNS/browser test — done via
+`kubectl exec`-based `curl` against the ClusterIP services rather than
+through ingress-nginx, since the sandbox's port 80 was already bound by
+something else; `kind-config.yaml`'s port mappings and the two-host Ingress
+are per kind's documented recipe but untested against a live nginx
+controller). The Slack webhook step and GHCR push are untested against
+real credentials (no Slack workspace or GHCR push permissions available
+here) — the workflow YAML is syntactically valid and the skip-if-unset
+logic was reasoned through, not run.
 
 ### Phase 7 — Monitoring & notifications
 - [ ] Structured logging + basic metrics (e.g. Prometheus) for backend and

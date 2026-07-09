@@ -7,7 +7,9 @@ Phase 2: AI review of the PR diff, posted back to GitHub; Phase 3: Next.js
 dashboard for logging in, connecting repos, and watching reviews land;
 Phase 4: security findings, on-demand test/doc generation, and a Qdrant-
 backed RAG pass so reviews see more than just the raw diff; Phase 5:
-optional SonarQube static analysis merged into the same PR comment).
+optional SonarQube static analysis merged into the same PR comment; Phase
+6: CI on every PR, Docker images published to GHCR on merge, and a Helm
+chart for deploying the platform itself to a local kind cluster).
 
 ## Layout
 
@@ -15,6 +17,9 @@ optional SonarQube static analysis merged into the same PR comment).
 apps/backend/    FastAPI app + Celery worker
 apps/frontend/   Next.js dashboard (TypeScript, Tailwind, shadcn/ui)
 infra/docker/    docker-compose.yml for local dev
+infra/k8s/       Helm chart + kind config to deploy this platform itself
+infra/terraform/ deferred — see infra/terraform/README.md
+.github/workflows/  CI (lint+test on PR) and image publish (on merge to main)
 ```
 
 ## 1. Create a GitHub App
@@ -175,15 +180,37 @@ There's no re-index endpoint yet — to force a fresh index, delete the
 repo's Qdrant collection (`repo_{id}`) and re-deliver an `installation`
 webhook, or call `app.services.rag.index_repository(...)` directly.
 
+## 6. CI/CD and deploying the platform itself (Phase 6)
+
+Every PR touching `apps/backend` or `apps/frontend` runs lint + tests via
+GitHub Actions (`.github/workflows/backend-ci.yml` /
+`frontend-ci.yml`). Merging to `main` builds and pushes the backend +
+frontend images to `ghcr.io/<owner>/codereviewai-{backend,frontend}`
+(`.github/workflows/docker-publish.yml`), then notifies a Slack webhook if
+`SLACK_WEBHOOK_URL` is set as a repo secret (skipped otherwise).
+
+To run this platform itself in Kubernetes (a local kind cluster — see
+[`infra/k8s/README.md`](infra/k8s/README.md) for the full walkthrough,
+verified end-to-end against a real cluster):
+
+```
+kind create cluster --config infra/k8s/kind-config.yaml --name codereviewai
+docker build -t codereviewai-backend:local apps/backend
+docker build -t codereviewai-frontend:local -f apps/frontend/Dockerfile.prod apps/frontend
+kind load docker-image codereviewai-backend:local codereviewai-frontend:local --name codereviewai
+helm upgrade --install codereviewai infra/k8s/helm/codereviewai --wait
+```
+
 ## Development
 
 ```
 cd apps/backend
-uv run ruff check app          # lint
+uv run ruff check app tests    # lint
+uv run pytest                  # unit tests
 uv run alembic revision --autogenerate -m "message"   # new migration
 
 cd apps/frontend
 npm run lint                   # eslint
 npx tsc --noEmit               # typecheck
-npm run build                  # production build
+npm run build                  # production build (dev config)
 ```

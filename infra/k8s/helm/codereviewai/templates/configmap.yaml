@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  FRONTEND_URL: {{ .Values.config.frontendUrl | quote }}
+  BACKEND_URL: {{ .Values.config.backendUrl | quote }}
+  JWT_ALGORITHM: {{ .Values.config.jwtAlgorithm | quote }}
+  JWT_EXPIRE_MINUTES: {{ .Values.config.jwtExpireMinutes | quote }}
+  REDIS_URL: "redis://{{ .Release.Name }}-redis:{{ .Values.redis.port }}/0"
+  QDRANT_URL: "http://{{ .Release.Name }}-qdrant:{{ .Values.qdrant.port }}"
+  OPENAI_MODEL: {{ .Values.config.openaiModel | quote }}
+  MAX_DIFF_CHARS: {{ .Values.config.maxDiffChars | quote }}
+  EMBEDDING_MODEL: {{ .Values.config.embeddingModel | quote }}
+  RAG_TOP_K: {{ .Values.config.ragTopK | quote }}
+  SONARQUBE_ENABLED: {{ .Values.config.sonarqubeEnabled | quote }}
+  SONARQUBE_URL: {{ .Values.config.sonarqubeUrl | quote }}
+  GITHUB_APP_PRIVATE_KEY_PATH: "/etc/secrets/github-app/github-app-private-key.pem"

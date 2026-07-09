@@ -1,0 +1,106 @@
+# Defaults are tuned for a local kind cluster (infra/k8s/README.md). For a
+# real cluster, at minimum override the `secrets` block and switch
+# `*.image.repository` to the GHCR images the docker-publish workflow
+# pushes (ghcr.io/<owner>/codereviewai-backend / -frontend).
+
+global:
+  ingress:
+    enabled: true
+    className: nginx
+    host: codereviewai.local
+
+backend:
+  image:
+    repository: codereviewai-backend
+    tag: local
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8000
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+worker:
+  image:
+    repository: codereviewai-backend
+    tag: local
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+frontend:
+  image:
+    repository: codereviewai-frontend
+    tag: local
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 3000
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+postgres:
+  image: postgres:16-alpine
+  database: codereviewai
+  user: postgres
+  # password lives in `secrets.postgresPassword`
+  port: 5432
+  persistence:
+    enabled: true
+    size: 1Gi
+
+redis:
+  image: redis:7-alpine
+  port: 6379
+  persistence:
+    enabled: false
+
+qdrant:
+  image: qdrant/qdrant:latest
+  port: 6333
+  persistence:
+    enabled: true
+    size: 1Gi
+
+sonarqube:
+  enabled: false
+
+# Non-secret app config, rendered into a ConfigMap and consumed by
+# backend/worker as env vars. Mirrors .env.example.
+config:
+  # Used for the OAuth callback redirect and CORS allow-origin — should
+  # match the ingress hosts below for a real browser flow through kind.
+  frontendUrl: "http://codereviewai.local"
+  backendUrl: "http://api.codereviewai.local"
+  jwtAlgorithm: "HS256"
+  jwtExpireMinutes: "1440"
+  openaiModel: "gpt-4o-mini"
+  maxDiffChars: "30000"
+  embeddingModel: "text-embedding-3-small"
+  ragTopK: "5"
+  sonarqubeEnabled: "false"
+  sonarqubeUrl: "http://codereviewai-sonarqube:9000"
+  # Documentation only — NEXT_PUBLIC_* vars are baked into the frontend
+  # image at build time (Dockerfile.prod ARG), not read at runtime. Must
+  # match the ingress's "api.<global.ingress.host>" host for the browser
+  # to reach the backend. See infra/k8s/README.md.
+  nextPublicApiUrl: "http://api.codereviewai.local"
+  nextPublicGithubAppSlug: ""
+
+# Sensitive values. DO NOT commit real values here — override with
+# `--set secrets.foo=bar` or a separate, gitignored values file, e.g.:
+#   helm upgrade --install codereviewai . -f values.yaml -f values-secrets.yaml
+secrets:
+  jwtSecret: "change-me-to-a-random-string"
+  postgresPassword: "postgres"
+  githubAppId: ""
+  githubAppClientId: ""
+  githubAppClientSecret: ""
+  githubAppWebhookSecret: "change-me-to-a-random-webhook-secret"
+  # PEM contents of the GitHub App private key, mounted as a file at
+  # /run/secrets/github-app-private-key.pem — not a path, the key itself.
+  githubAppPrivateKey: ""
+  openaiApiKey: ""
+  sonarqubeToken: ""

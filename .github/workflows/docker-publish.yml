@@ -1,0 +1,93 @@
+name: docker-publish
+
+# Builds and pushes the backend + frontend images to GHCR on every merge to
+# main. This is the "build" half of Phase 6; the "deploy" half is a local
+# kind cluster (no CI runner can reach it) — see infra/k8s/README.md for
+# pulling these images into that cluster with a Helm upgrade.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/backend/**"
+      - "apps/frontend/**"
+      - ".github/workflows/docker-publish.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      backend_image: ${{ steps.meta.outputs.backend_image }}
+      frontend_image: ${{ steps.meta.outputs.frontend_image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image names
+        id: meta
+        run: |
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          echo "backend_image=ghcr.io/${owner}/codereviewai-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${owner}/codereviewai-frontend" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/backend
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.backend_image }}:latest
+            ${{ steps.meta.outputs.backend_image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build + push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/frontend
+          file: apps/frontend/Dockerfile.prod
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
+          tags: |
+            ${{ steps.meta.outputs.frontend_image }}:latest
+            ${{ steps.meta.outputs.frontend_image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  notify-slack:
+    needs: build-and-push
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set, skipping notification."
+            exit 0
+          fi
+          if [ "${{ needs.build-and-push.result }}" = "success" ]; then
+            status_emoji=":white_check_mark:"
+            status_text="succeeded"
+          else
+            status_emoji=":x:"
+            status_text="failed"
+          fi
+          payload=$(printf '{"text":"%s Docker publish *%s* for `%s` @ `%s`\\n<%s|View run>"}' \
+            "$status_emoji" "$status_text" "${{ github.repository }}" "${{ github.sha }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          curl -sf -X POST -H "Content-Type: application/json" -d "$payload" "$SLACK_WEBHOOK_URL"

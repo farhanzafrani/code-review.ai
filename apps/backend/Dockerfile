@@ -28,4 +28,8 @@ RUN uv sync
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --no-sync: the environment is already synced above at build time. Without
+# it, `uv run` re-checks the project against the lockfile on every start and
+# rebuilds the local package via hatchling — which needs PyPI reachable, so
+# the container fails to boot at all on any network-restricted cluster.
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

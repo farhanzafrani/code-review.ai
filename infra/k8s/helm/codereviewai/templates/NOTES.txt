@@ -1,0 +1,17 @@
+CodeReviewAI is deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.global.ingress.enabled }}
+Add these to /etc/hosts (kind doesn't do DNS for you):
+
+  127.0.0.1 {{ .Values.global.ingress.host }}
+  127.0.0.1 api.{{ .Values.global.ingress.host }}
+
+Then open http://{{ .Values.global.ingress.host }}/
+{{- else }}
+Ingress is disabled — port-forward to reach it:
+  kubectl port-forward svc/{{ .Release.Name }}-frontend 3000:{{ .Values.frontend.port }}
+  kubectl port-forward svc/{{ .Release.Name }}-backend 8000:{{ .Values.backend.port }}
+{{- end }}
+
+Check rollout status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}

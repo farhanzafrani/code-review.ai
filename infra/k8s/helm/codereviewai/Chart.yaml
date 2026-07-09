@@ -1,0 +1,6 @@
+apiVersion: v2
+name: codereviewai
+description: AI Code Review & DevOps Assistant — backend, worker, frontend, and their datastores
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
