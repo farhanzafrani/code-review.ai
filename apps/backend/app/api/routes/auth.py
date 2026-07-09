@@ -28,11 +28,21 @@ def login(response: Response) -> RedirectResponse:
 @router.get("/callback")
 def callback(
     code: str,
-    state: str,
+    state: str | None = None,
+    setup_action: str | None = None,
     oauth_state: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    if not oauth_state or state != oauth_state:
+    # This one callback URL is hit by two distinct flows:
+    #  1. Our own "Sign in with GitHub" button (login() above) — always
+    #     carries `state`, checked against the oauth_state cookie it set.
+    #  2. Installing the App directly from GitHub, with "Request user
+    #     authorization during installation" on — carries `setup_action`
+    #     instead, with no `state`/cookie at all, since we never
+    #     initiated it. Skipping the state check for this case is
+    #     standard: unlike (1), nothing on our own site originates this
+    #     redirect for a CSRF attacker to forge against.
+    if setup_action is None and (not state or not oauth_state or state != oauth_state):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid OAuth state")
 
     redirect_uri = f"{settings.backend_url}{CALLBACK_PATH}"

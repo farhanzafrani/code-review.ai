@@ -16,6 +16,24 @@ Phase 8: rate limiting, a secrets audit that found and fixed two real
 token leaks (see `SECURITY.md`), a burst-load test script, and CPU-based
 autoscaling for the worker in Kubernetes).
 
+## Status
+
+All 8 phases in `INSTRUCTIONS.md` are complete (the one intentional
+exception: the Phase 4 local-LLM/Ollama stretch goal, explicitly scoped as
+optional and never required). Every claim has been checked against
+something real where this environment allows it — real docker-compose
+stacks, real kind clusters, a real burst-load run — not just mocked tests;
+several of those checks caught and fixed genuine bugs rather than just
+confirming things worked.
+
+What hasn't been exercised, and can't be from a sandbox: a live GitHub
+App + real OpenAI key reviewing an actual PR end-to-end (the Phase 2 "v1
+milestone" is only verified via mocks/local infra so far), ingress-nginx
+routing through real DNS, and Slack/GHCR delivery against real
+credentials. Standing up a real GitHub App and opening a real PR against
+a connected repo is the one remaining step no amount of further local
+work substitutes for.
+
 ## Layout
 
 ```
