@@ -99,3 +99,14 @@ export interface PullRequestDetail extends PullRequest {
   repository_id: number;
   repository_full_name: string;
 }
+
+export type NotificationType = "review_completed" | "review_failed" | "quality_gate_failed";
+
+export interface Notification {
+  id: number;
+  type: NotificationType;
+  message: string;
+  pull_request_id: number | null;
+  read: boolean;
+  created_at: string;
+}

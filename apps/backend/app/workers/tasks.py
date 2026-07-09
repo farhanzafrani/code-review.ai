@@ -13,6 +13,7 @@ from app.services.github_api import get_pr_diff
 from app.services.github_app import get_installation_access_token
 from app.services.rag import index_repository, query_context
 from app.services.review_comment import maybe_post_comment
+from app.services.task_log import append_log
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -32,33 +33,42 @@ def process_pull_request(review_id: int) -> None:
         repo = db.get(Repository, pr.repository_id)
         review.status = "running"
         db.commit()
+        append_log(review_id, f"Starting AI review of {repo.full_name}#{pr.number}")
 
         try:
             owner, repo_name = repo.full_name.split("/", 1)
             token = get_installation_access_token(repo.github_installation_id)
+            append_log(review_id, "Fetching PR diff from GitHub…")
             diff = get_pr_diff(token, owner, repo_name, pr.number)
 
             if not diff.strip():
                 review.status = "completed"
                 review.summary = "No reviewable diff content (empty or binary-only change)."
+                append_log(review_id, "Diff is empty — nothing to review.")
             else:
                 truncated = len(diff) > settings.max_diff_chars
                 diff_for_review = diff[: settings.max_diff_chars]
+                append_log(review_id, "Querying RAG index for related context…")
                 context_chunks = query_context(repo.id, f"{pr.title}\n{diff_for_review[:4000]}")
+                append_log(review_id, "Running AI review…")
                 ai_result = run_ai_review(diff_for_review, pr.title, context_chunks=context_chunks)
                 ai_result["truncated"] = truncated
 
                 review.status = "completed"
                 review.summary = ai_result["summary"]
                 review.raw_result = ai_result
+                append_log(review_id, "AI review complete.")
             db.commit()
         except Exception as exc:
             logger.exception("AI review failed for PR #%s", pr.number)
             review.status = "failed"
             review.summary = f"Review failed: {exc}"
+            append_log(review_id, f"AI review failed: {exc}")
             db.commit()
 
+        append_log(review_id, "Posting result to GitHub…")
         maybe_post_comment(db, review_id)
+        append_log(review_id, "Done.")
     finally:
         db.close()
 
@@ -80,16 +90,20 @@ def run_sonar_scan(review_id: int) -> None:
         repo = db.get(Repository, pr.repository_id)
         review.sonar_status = "running"
         db.commit()
+        append_log(review_id, f"Starting Sonar scan of {repo.full_name}#{pr.number}")
 
         try:
             owner, repo_name = repo.full_name.split("/", 1)
             token = get_installation_access_token(repo.github_installation_id)
             key = sonar.project_key(repo.id)
+            append_log(review_id, "Ensuring Sonar project exists…")
             sonar.ensure_project(key, repo.full_name)
 
             with tempfile.TemporaryDirectory() as tmp:
+                append_log(review_id, "Checking out PR head commit…")
                 sonar.checkout_pr_head(owner, repo_name, pr.number, token, tmp)
                 try:
+                    append_log(review_id, "Running sonar-scanner…")
                     sonar.run_scanner(key, repo.full_name, tmp)
                 except subprocess.CalledProcessError as exc:
                     # sonar-scanner also exits non-zero on a failed quality
@@ -97,17 +111,20 @@ def run_sonar_scan(review_id: int) -> None:
                     # fetch the actual gate status below instead of failing.
                     logger.info("sonar-scanner exited non-zero for %s: %s", repo.full_name, exc)
 
+            append_log(review_id, "Fetching quality gate status…")
             gate = sonar.get_quality_gate_status(key)
             issues = sonar.get_issues(key)
 
             review.sonar_status = "completed"
             review.sonar_quality_gate = gate["status"]
             review.sonar_result = {"quality_gate": gate, "issues": issues}
+            append_log(review_id, f"Sonar scan complete — quality gate: {gate['status']}")
             db.commit()
         except Exception as exc:
             logger.exception("Sonar scan failed for PR #%s", pr.number)
             review.sonar_status = "failed"
             review.sonar_result = {"error": str(exc)}
+            append_log(review_id, f"Sonar scan failed: {exc}")
             db.commit()
 
         maybe_post_comment(db, review_id)

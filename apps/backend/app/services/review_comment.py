@@ -12,6 +12,7 @@ from app.models.review import Review
 from app.services.ai_review import format_review_comment
 from app.services.github_api import post_pr_review, update_pr_review
 from app.services.github_app import get_installation_access_token
+from app.services.notifications import notify_review_terminal
 from app.services.sonar import format_sonar_section
 
 logger = logging.getLogger(__name__)
@@ -61,4 +62,5 @@ def maybe_post_comment(db: Session, review_id: int) -> None:
         result = post_pr_review(token, owner, repo_name, pr.number, body)
         review.github_review_id = result["id"]
 
+    notify_review_terminal(db, review)
     db.commit()

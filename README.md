@@ -9,7 +9,9 @@ Phase 4: security findings, on-demand test/doc generation, and a Qdrant-
 backed RAG pass so reviews see more than just the raw diff; Phase 5:
 optional SonarQube static analysis merged into the same PR comment; Phase
 6: CI on every PR, Docker images published to GHCR on merge, and a Helm
-chart for deploying the platform itself to a local kind cluster).
+chart for deploying the platform itself to a local kind cluster; Phase 7:
+structured JSON logging, Prometheus metrics, live pipeline logs on the PR
+detail page, and in-app/Slack notifications when a review finishes).
 
 ## Layout
 
@@ -161,11 +163,22 @@ npm run dev
   quality gate badge on the PR detail page. A failed quality gate is a
   normal scan result, not an error — it's recorded and shown just like a
   passing one.
+- While a review is pending/running, the PR detail page shows a **Pipeline
+  logs** panel with the worker's step-by-step progress (fetching the diff,
+  running the AI review, running Sonar, posting the comment) — polled from
+  Redis, not persisted, so it expires after an hour.
+- The bell icon in the dashboard header shows in-app notifications for
+  review completed/failed and quality-gate-failed. If `SLACK_WEBHOOK_URL`
+  is set, the same events also post to Slack. Notifications are a shared
+  feed across all users, not per-user — see Phase 7 in `INSTRUCTIONS.md`
+  for why.
 
-Backend API reference (all except `/health` and the two `/auth/github/*`
-routes require `Authorization: Bearer <token>`):
+Backend API reference (all except `/health`, `/metrics`, and the two
+`/auth/github/*` routes require `Authorization: Bearer <token>`):
 
 - `GET /health` — liveness check.
+- `GET /metrics` — Prometheus metrics (HTTP request count/latency). The
+  worker serves its own separately on `WORKER_METRICS_PORT` (9200).
 - `GET /auth/github/login` / `GET /auth/github/callback` — OAuth flow;
   callback redirects to `${FRONTEND_URL}/auth/callback?token=...`.
 - `GET /users/me` — the logged-in user.
@@ -173,8 +186,11 @@ routes require `Authorization: Bearer <token>`):
 - `GET /repositories/{id}/pull-requests` — PRs + latest review status.
 - `GET /pull-requests/{id}` — PR detail + latest review.
 - `GET /pull-requests/{id}/diff` — live unified diff, proxied from GitHub.
+- `GET /pull-requests/{id}/logs` — latest review's pipeline log lines.
 - `POST /pull-requests/{id}/generate-tests` — on-demand test generation.
 - `POST /pull-requests/{id}/generate-docs` — on-demand doc generation.
+- `GET /notifications` — recent notifications (`?unread_only=true` to filter).
+- `POST /notifications/{id}/read`, `POST /notifications/read-all`.
 
 There's no re-index endpoint yet — to force a fresh index, delete the
 repo's Qdrant collection (`repo_{id}`) and re-deliver an `installation`

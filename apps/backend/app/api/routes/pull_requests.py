@@ -13,6 +13,7 @@ from app.schemas.pull_request import PullRequestDetailOut
 from app.services.ai_generate import generate_docs, generate_tests
 from app.services.github_api import get_pr_diff
 from app.services.github_app import get_installation_access_token
+from app.services.task_log import get_logs
 
 router = APIRouter(prefix="/pull-requests", tags=["pull-requests"])
 
@@ -57,6 +58,24 @@ def get_pull_request_diff(
 ) -> str:
     pr = _get_pr_or_404(db, pull_request_id)
     return _fetch_diff(db, pr)
+
+
+@router.get("/{pull_request_id}/logs")
+def get_pull_request_logs(
+    pull_request_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    pr = _get_pr_or_404(db, pull_request_id)
+    review = (
+        db.query(Review)
+        .filter(Review.pull_request_id == pr.id)
+        .order_by(Review.created_at.desc())
+        .first()
+    )
+    if review is None:
+        return {"lines": []}
+    return {"lines": get_logs(review.id)}
 
 
 @router.post("/{pull_request_id}/generate-tests", response_model=GenerationResult)

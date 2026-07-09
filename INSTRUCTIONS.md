@@ -336,11 +336,93 @@ here) — the workflow YAML is syntactically valid and the skip-if-unset
 logic was reasoned through, not run.
 
 ### Phase 7 — Monitoring & notifications
-- [ ] Structured logging + basic metrics (e.g. Prometheus) for backend and
-      workers.
-- [ ] Live build/deploy logs surfaced on the dashboard.
-- [ ] Notification center (Slack + in-app) for review completed, quality
-      gate failed, deploy succeeded/failed.
+- [x] Structured logging + basic metrics (e.g. Prometheus) for backend and
+      workers. `app/core/logging.py`: a JSON formatter on the root logger,
+      wired into FastAPI at import time and into Celery via
+      `after_setup_logger`/`after_setup_task_logger` (Celery installs its
+      own handlers on worker boot, which would otherwise clobber the plain
+      formatter). Backend serves `GET /metrics` (`app/core/metrics.py`: an
+      HTTP middleware Counter/Histogram keyed by the route's path
+      *template*, e.g. `/pull-requests/{pull_request_id}`, not the raw URL
+      — using raw paths would give every PR id its own label and blow up
+      Prometheus's cardinality). Worker metrics needed more than the
+      obvious approach: Celery's default pool is prefork, so tasks execute
+      in forked child processes, and a naive `Counter` + `start_http_server`
+      in the parent never sees child-process increments (separate memory
+      after fork) — confirmed empirically (metrics stayed at zero after a
+      real task ran), then fixed with `prometheus_client`'s multiprocess
+      mode (`PROMETHEUS_MULTIPROC_DIR` + `MultiProcessCollector`, cleaned
+      up per-child via `worker_process_shutdown`), verified by re-running
+      the same task and seeing the counter actually increment.
+- [x] Live build/deploy logs surfaced on the dashboard. Interpreted as the
+      review/Sonar pipeline's own execution trace (this platform doesn't
+      run a separate build/deploy pipeline *for* connected repos — only
+      for itself, via Phase 6's GitHub Actions) — `app/services/task_log.py`
+      appends timestamped step lines to a capped, TTL'd Redis list per
+      review id from within `process_pull_request`/`run_sonar_scan`;
+      `GET /pull-requests/{id}/logs` returns the latest review's lines; the
+      PR detail page polls it into a scrollable "Pipeline logs" panel while
+      the review is pending/running.
+- [x] Notification center (Slack + in-app) for review completed, quality
+      gate failed, deploy succeeded/failed. "Deploy succeeded/failed" is
+      already covered by the Slack step in Phase 6's `docker-publish.yml`
+      (that's about this platform's own deploy, not a per-repo feature), so
+      this scoped to review-completed/failed and quality-gate-failed:
+      `app/services/notifications.py` creates a `Notification` row and
+      (if `SLACK_WEBHOOK_URL` is set) posts to Slack, called once from
+      `review_comment.maybe_post_comment` at the same single point that
+      already gates on both pipelines reaching a terminal state — so each
+      fires exactly once per review, reusing existing row-lock logic rather
+      than adding new coordination. In-app notifications are a **global
+      feed, not per-user** — the app has no repo/PR ownership model to
+      scope them to a specific user (any authenticated user already sees
+      every connected repo), so marking one read is a shared action across
+      all users, matching that existing level of tenancy rather than
+      inventing a per-user read-state model the rest of the app doesn't
+      have. Frontend: a bell icon in the dashboard header with an unread
+      badge, dropdown list, mark-read/mark-all-read, polling every 15s.
+
+**Done when:** backend/worker logs are structured JSON and scrapeable
+Prometheus metrics exist for both, the PR detail page shows the pipeline's
+own progress while a review is running, and a review reaching completed/
+failed/quality-gate-failed produces both an in-app notification and (if
+configured) a Slack message.
+
+Verified: backend — ruff clean; 16 pytest cases (up from 8), including a
+notification-service suite (completed/failed/quality-gate-failed all create
+the right rows, Slack posts only when configured, a Slack failure never
+raises) and a `TestClient`-based suite for the logs endpoint (empty when no
+review, returns the latest review's lines, 404 for an unknown PR). Frontend
+— `eslint`/`tsc --noEmit`/`next build` all clean.
+
+**Exercised against a real running stack**, not just mocked tests: brought
+up Postgres + Redis + Qdrant + backend + worker via the actual
+`docker-compose.yml` (temporarily un-published Postgres's host port to work
+around an unrelated port conflict in this sandbox, reverted after), seeded
+a completed review directly through the real service functions, and hit
+the real HTTP endpoints — `GET /notifications` returned the created
+notification, `POST /notifications/{id}/read` flipped it, `GET
+/pull-requests/{id}/logs` returned the exact lines `append_log` had written
+via Redis, `GET /metrics` returned real `http_requests_total` samples, and
+enqueuing a real Celery task showed up in `celery_tasks_total` on the
+worker's `:9200/metrics` (after the multiprocess fix — see above; the
+worker's own JSON-formatted log lines were also confirmed in this run,
+including a real task failure trace, which is what surfaced the secrets
+leak documented in Phase 8 below).
+
+Known limitation: uvicorn's own access-log lines (`INFO:  GET /health
+200 OK`) stay in uvicorn's default format — its `uvicorn`/`uvicorn.access`
+loggers install their own handlers *after* app import, on server start, so
+they'd need fighting uvicorn's logging config timing to reformat. Every
+application-level log statement (this app's own code, httpx, Celery) is
+correctly JSON-formatted; HTTP-traffic observability is covered by the
+`http_requests_total`/`http_request_duration_seconds` metrics instead of
+needing the access log itself to be structured.
+
+Not verified: the ingress path for these new endpoints specifically (same
+sandbox port-80 constraint as Phase 6); Slack webhook delivery against a
+real workspace (tested that the code posts to whatever URL is configured
+and swallows failures, not that a real Slack channel receives the message).
 
 ### Phase 8 — Hardening
 - [ ] Rate limiting on webhook + API endpoints.

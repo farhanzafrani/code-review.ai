@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DiffView } from "@/components/diff-view";
 import { GenerationPanel } from "@/components/generation-panel";
+import { LogsPanel } from "@/components/logs-panel";
 import { QualityGateBadge } from "@/components/quality-gate-badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { StatusBadge } from "@/components/status-badge";
@@ -83,6 +84,8 @@ export default function PullRequestDetailPage() {
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {pr && <LogsPanel pullRequestId={pr.id} active={inFlight(status) || inFlight(sonarStatus)} />}
 
       {!pr ? (
         <Skeleton className="h-40 w-full" />

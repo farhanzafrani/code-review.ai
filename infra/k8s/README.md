@@ -111,3 +111,10 @@ existing Helm-installed spec — if you changed the chart's templates or
   SonarQube pod — run it separately (e.g. `docker compose --profile
   sonarqube up sonarqube`) and point `config.sonarqubeUrl` /
   `secrets.sonarqubeToken` at it if you want that integration in-cluster.
+- Backend serves Prometheus metrics at `GET /metrics` on its normal port;
+  the worker serves its own at `<release>-worker-metrics:9200` (Celery's
+  prefork pool runs tasks in forked child processes, so its metrics use
+  `prometheus_client`'s multiprocess mode rather than the single-process
+  default — see the comment at the top of `app/workers/celery_app.py`).
+  There's no Prometheus/Grafana deployed by this chart to scrape them —
+  point your own at those two targets if you want dashboards.

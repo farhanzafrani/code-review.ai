@@ -26,6 +26,7 @@ worker:
     tag: local
     pullPolicy: IfNotPresent
   replicaCount: 1
+  metricsPort: 9200
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { cpu: 1000m, memory: 1Gi }
@@ -100,7 +101,11 @@ secrets:
   githubAppClientSecret: ""
   githubAppWebhookSecret: "change-me-to-a-random-webhook-secret"
   # PEM contents of the GitHub App private key, mounted as a file at
-  # /run/secrets/github-app-private-key.pem — not a path, the key itself.
+  # /etc/secrets/github-app/github-app-private-key.pem — not a path, the
+  # key itself.
   githubAppPrivateKey: ""
   openaiApiKey: ""
   sonarqubeToken: ""
+  # Slack webhook URLs are bearer credentials (anyone with the URL can post
+  # to that channel) — treat as sensitive. Leave blank to disable.
+  slackWebhookUrl: ""

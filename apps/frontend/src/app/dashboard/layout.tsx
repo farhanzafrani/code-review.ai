@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect } from "react";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -27,6 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           CodeReviewAI
         </Link>
         <div className="flex items-center gap-3">
+          <NotificationBell />
           <Avatar className="size-7">
             <AvatarImage src={user.avatar_url ?? undefined} alt={user.github_login} />
             <AvatarFallback>{user.github_login.slice(0, 2).toUpperCase()}</AvatarFallback>

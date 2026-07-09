@@ -16,3 +16,4 @@ data:
   SONARQUBE_ENABLED: {{ .Values.config.sonarqubeEnabled | quote }}
   SONARQUBE_URL: {{ .Values.config.sonarqubeUrl | quote }}
   GITHUB_APP_PRIVATE_KEY_PATH: "/etc/secrets/github-app/github-app-private-key.pem"
+  WORKER_METRICS_PORT: {{ .Values.worker.metricsPort | quote }}

@@ -72,6 +72,8 @@ services:
       context: ../../apps/backend
     env_file:
       - ../../.env
+    ports:
+      - "9200:9200"
     volumes:
       - ../../apps/backend:/app
     depends_on:

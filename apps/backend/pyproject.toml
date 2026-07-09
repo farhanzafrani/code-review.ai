@@ -16,6 +16,7 @@ dependencies = [
     "redis>=5.0",
     "openai>=1.50",
     "qdrant-client>=1.11",
+    "prometheus-client>=0.20",
 ]
 
 [dependency-groups]

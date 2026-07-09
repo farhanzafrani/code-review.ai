@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/codereviewai"
     redis_url: str = "redis://localhost:6379/0"
 
+    worker_metrics_port: int = 9200
+    slack_webhook_url: str = ""
+
     github_app_id: str = ""
     github_app_client_id: str = ""
     github_app_client_secret: str = ""

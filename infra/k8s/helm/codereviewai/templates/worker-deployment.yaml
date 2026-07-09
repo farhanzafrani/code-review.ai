@@ -17,6 +17,9 @@ spec:
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           command: ["uv", "run", "--no-sync", "celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.metricsPort }}
           envFrom:
             - configMapRef: { name: {{ .Release.Name }}-config }
             - secretRef: { name: {{ .Release.Name }}-secrets }
@@ -36,3 +39,14 @@ spec:
             items:
               - key: github-app-private-key.pem
                 path: github-app-private-key.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-worker-metrics
+spec:
+  selector:
+    {{- include "codereviewai.selectorLabels" (dict "root" $ "component" "worker") | nindent 4 }}
+  ports:
+    - port: {{ .Values.worker.metricsPort }}
+      targetPort: {{ .Values.worker.metricsPort }}

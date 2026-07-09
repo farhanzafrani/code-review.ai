@@ -6,3 +6,4 @@ from app.models.user import User  # noqa: F401
 from app.models.repository import Repository  # noqa: F401
 from app.models.pull_request import PullRequest  # noqa: F401
 from app.models.review import Review  # noqa: F401
+from app.models.notification import Notification  # noqa: F401
